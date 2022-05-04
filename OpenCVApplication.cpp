@@ -12,6 +12,8 @@ struct images {
 	Mat_<uchar> contour_image;
 };
 
+const float MAXTHINNESS = 0.7;
+
 void testOpenImage()
 {
 	char fname[MAX_PATH];
@@ -818,7 +820,6 @@ Mat findnegativeImage(Mat image)
 	return new_image;
 }
 
-
 Mat findDrawCountours(Mat image)
 {
 	//Mat image = imread("Images/imagine4.tiff", IMREAD_COLOR);
@@ -848,6 +849,37 @@ Mat findDrawCountours(Mat image)
 	//cv::waitKey(0);
 
 	return contourImage;
+}
+
+vector<std::vector<cv::Point> > findDrawCountoursVector(Mat image)
+{
+	//Mat image = imread("Images/imagine4.tiff", IMREAD_COLOR);
+	//Prepare the image for findContours
+	//cvtColor(image, image, CV_BGR2GRAY);
+	//threshold(image, image, 128, 255, CV_THRESH_BINARY);
+
+	//Find the contours. Use the contourOutput Mat so the original image doesn't get overwritten
+	vector<std::vector<cv::Point> > contours;
+	Mat contourOutput = image.clone();
+	findContours(contourOutput, contours, CV_RETR_LIST, CV_CHAIN_APPROX_NONE);
+
+	//Draw the contours
+	Mat contourImage(image.size(), CV_8UC3, Scalar(0, 0, 0));
+	Scalar colors[3];
+	colors[0] = Scalar(255, 0, 255);
+	colors[1] = Scalar(0, 255, 255);
+	colors[2] = Scalar(255, 255, 153);
+	for (size_t idx = 0; idx < contours.size(); idx++) {
+		cv::drawContours(contourImage, contours, idx, colors[idx % 3]);
+	}
+
+	//cv::imshow("Input Image", image);
+	//cvMoveWindow("Input Image", 0, 400);
+	//cv::imshow("Contours", contourImage);
+	//cvMoveWindow("Contours", 500, 400);
+	//cv::waitKey(0);
+
+	return contours;
 }
 
 void removeSmallObjects() {
@@ -891,6 +923,75 @@ void removeSmallObjects() {
 	}
 }
 
+Mat detectCircles(Mat src) {
+	Mat gray;
+	Mat dst = src.clone();
+	//cvtColor(dst, gray, COLOR_BGR2GRAY);
+	medianBlur(dst, dst, 3);
+	vector<Vec3f> circles;
+	HoughCircles(dst, circles, CV_HOUGH_GRADIENT, 1, dst.rows / 16, 100, 30, 5, 30);
+	for (size_t i = 0; i < circles.size(); i++)
+	{
+		Vec3i c = circles[i];
+		Point center = Point(c[0], c[1]);
+		// circle center
+		circle(dst, center, 1, Scalar(0, 100, 100), 3, LINE_AA);
+		// circle outline
+		int radius = c[2];
+		circle(dst, center, radius, Scalar(255, 0, 255), 3, LINE_AA);
+	}
+
+	return dst;
+}
+
+vector<float> computeThinnessFactor(vector<std::vector<cv::Point> > contours) {
+	vector<float> thinnessVector;
+	for (unsigned int i = 0; i < contours.size(); i++)
+	{
+		//std::cout << "# of contour points: " << contours[i].size() << std::endl;
+
+		for (unsigned int j = 0; j < contours[i].size(); j++)
+		{
+			//std::cout << "Point(x,y)=" << contours[i][j] << std::endl;
+		}
+		//std::cout << " Area: " << contourArea(contours[i]) << std::endl;
+		//std::cout << " Perimeter: " << arcLength(contours[i], true) << std::endl;
+		//std::cout << " Thinness factor " << 4 * PI * contourArea(contours[i]) / (arcLength(contours[i], true) * arcLength(contours[i], true)) << std::endl;
+		float var = 4 * PI * contourArea(contours[i]) / (arcLength(contours[i], true) * arcLength(contours[i], true));
+		thinnessVector.push_back(var);
+	}
+	
+	return thinnessVector;
+}
+
+
+void maxShape(vector<float> shapes) {
+	cout << *max_element(shapes.begin(), shapes.end()) << endl;
+}
+
+
+vector<float> getGoodShapes(vector<float> shapes) {
+	vector<float> goodShapes;
+	for (auto vec : shapes) {
+		if (vec > MAXTHINNESS) {
+			goodShapes.push_back(vec);
+		}
+	}
+	return goodShapes;
+}
+
+
+vector<float> getBadShapes(vector<float> shapes) {
+	vector<float> badShapes;
+	for (auto vec : shapes) {
+		if (vec < MAXTHINNESS) {
+			badShapes.push_back(vec);
+		}
+	}
+	return badShapes;
+}
+
+
 int main()
 {
 	Mat initialImage;
@@ -900,6 +1001,7 @@ int main()
 	Mat closing;
 	Mat dil;
 	Mat erod;
+	Mat circles;
 	char fname[MAX_PATH];
 	while (openFileDlg(fname)) {
 		initialImage = imread(fname);
@@ -931,6 +1033,38 @@ int main()
 
 		img.contour_image = findDrawCountours(opening);
 		new_contour = findDrawCountours(opening);
+
+		//circles = detectCircles(opening);
+
+		vector<std::vector<cv::Point> > contours = findDrawCountoursVector(opening);
+
+	    /*int i = 0;
+		for (auto vec : contours) {
+			std::cout << "Object" << i << "\n";
+			for (auto v : vec)
+				std::cout << v << std::endl;
+			i++;
+		}*/
+
+		vector<float> thinnessVector = computeThinnessFactor(contours);
+		//for (auto v : thinnessVector)
+			//std::cout << v << " " << std::endl;
+		//maxShape(thinnessVector);
+
+		//PRINTAM GOOD SHAPES
+		vector<float> goodShapes;
+		goodShapes = getGoodShapes(thinnessVector);
+		cout << "Good shapes" << std::endl;
+		for (auto v : goodShapes)
+			std::cout << v << " " << std::endl;
+
+		//PRINTAM Bad SHAPES
+		vector<float> badShapes;
+		badShapes = getBadShapes(thinnessVector);
+		cout << "Bad shapes" << std::endl;
+		for (auto v : badShapes)
+			std::cout << v << " " << std::endl;
+
 		//imshow("YCrCb image", YCrCb_image);
 		imshow("Original Image", initialImage);
 		imshow("Binarized image", img.img_bw);
@@ -939,6 +1073,8 @@ int main()
 		imshow("Erode", erod);
 		imshow("Open", opening);
 		imshow("Countours", new_contour);  //alea ce ne intereseaza sunt galbene
+		//imshow("Circles", circles);
+
 		waitKey(0);
 	}
 
